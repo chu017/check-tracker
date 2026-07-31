@@ -107,12 +107,17 @@ export async function POST(req: NextRequest) {
 
     const fileToken = uploadData.data.file_token;
 
-    // 5. Parse date to Unix milliseconds timestamp
+    // 5. Parse date to Unix milliseconds timestamp.
+    // `new Date("YYYY-MM-DD")` parses as UTC midnight, which Lark then
+    // renders in its own timezone — for anyone west of UTC that rolls the
+    // displayed date back by one day. Anchoring to UTC noon instead keeps
+    // the calendar date stable across every real-world timezone offset.
     let checkDateTimestamp: number | null = null;
     if (data.checkDate) {
-      const parsedDate = new Date(data.checkDate);
-      if (!isNaN(parsedDate.getTime())) {
-        checkDateTimestamp = parsedDate.getTime();
+      const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(data.checkDate);
+      if (match) {
+        const [, year, month, day] = match;
+        checkDateTimestamp = Date.UTC(Number(year), Number(month) - 1, Number(day), 12, 0, 0);
       }
     }
 
