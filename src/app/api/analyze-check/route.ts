@@ -1,5 +1,28 @@
 import { NextRequest, NextResponse } from "next/server";
-import { GoogleGenerativeAI } from "@google/generative-ai";
+import { GoogleGenerativeAI, GenerativeModel } from "@google/generative-ai";
+
+const MAX_RETRIES = 3;
+
+function isRetryableError(error: any): boolean {
+  return error?.status === 503 || /overloaded|high demand/i.test(error?.message || "");
+}
+
+async function generateWithRetry(model: GenerativeModel, parts: (string | { inlineData: { data: string; mimeType: string } })[]) {
+  let lastError: any;
+  for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
+    try {
+      return await model.generateContent(parts);
+    } catch (error: any) {
+      lastError = error;
+      if (!isRetryableError(error) || attempt === MAX_RETRIES - 1) {
+        throw error;
+      }
+      const backoffMs = 1000 * 2 ** attempt;
+      await new Promise((resolve) => setTimeout(resolve, backoffMs));
+    }
+  }
+  throw lastError;
+}
 
 export async function POST(req: NextRequest) {
   try {
@@ -81,7 +104,7 @@ AI Rules:
       },
     };
 
-    const response = await model.generateContent([prompt, imagePart]);
+    const response = await generateWithRetry(model, [prompt, imagePart]);
     const responseText = response.response.text();
 
     if (!responseText) {
@@ -94,9 +117,10 @@ AI Rules:
     return NextResponse.json(extractedData);
   } catch (error: any) {
     console.error("Error in analyze-check endpoint:", error);
-    return NextResponse.json(
-      { error: error.message || "An error occurred while analyzing the check image." },
-      { status: 500 }
-    );
+    const retryable = isRetryableError(error);
+    const message = retryable
+      ? "Gemini is currently overloaded and didn't respond after several retries. Please try again in a moment."
+      : error.message || "An error occurred while analyzing the check image.";
+    return NextResponse.json({ error: message }, { status: retryable ? 503 : 500 });
   }
 }

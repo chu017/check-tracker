@@ -10,12 +10,17 @@ import {
   Calendar,
   DollarSign,
   ArrowLeft,
+  ArrowDown,
+  ArrowUp,
   Building,
   User,
   Hash,
   Save,
   Check,
-  Briefcase
+  FolderOpen,
+  Sparkles,
+  Sun,
+  HelpCircle
 } from "lucide-react";
 
 interface ExtractedData {
@@ -200,11 +205,27 @@ export default function Home() {
         <div className="mx-auto flex max-w-7xl h-16 items-center justify-between px-4 sm:px-6 lg:px-8">
           <div className="flex items-center gap-3">
             <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-indigo-600 text-white shadow-md shadow-indigo-200">
-              <Briefcase className="h-5 w-5" />
+              <FolderOpen className="h-5 w-5" />
             </div>
             <div>
               <h1 className="text-xl font-bold tracking-tight text-slate-900">CheckTracker</h1>
             </div>
+          </div>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              aria-label="Toggle theme"
+              className="flex h-9 w-9 items-center justify-center rounded-xl border border-slate-200 text-slate-500 hover:bg-slate-50 hover:text-slate-700 transition-colors"
+            >
+              <Sun className="h-4 w-4" />
+            </button>
+            <button
+              type="button"
+              aria-label="Help"
+              className="flex h-9 w-9 items-center justify-center rounded-xl border border-slate-200 text-slate-500 hover:bg-slate-50 hover:text-slate-700 transition-colors"
+            >
+              <HelpCircle className="h-4 w-4" />
+            </button>
           </div>
         </div>
       </header>
@@ -276,20 +297,21 @@ export default function Home() {
                     </div>
                   ) : (
                     <div className="flex flex-col items-center">
-                      <div className="mb-4 flex h-14 w-14 items-center justify-center rounded-full bg-indigo-50 text-indigo-600">
-                        <Upload className="h-7 w-7" />
+                      <div className="mb-5 flex h-20 w-20 items-center justify-center rounded-full bg-indigo-50 text-indigo-600">
+                        <Upload className="h-8 w-8" />
                       </div>
-                      <h3 className="text-lg font-bold text-slate-950">Upload check image</h3>
-                      <p className="mt-1 text-sm text-slate-500 max-w-sm">
-                        Drag and drop your file here, or click to browse.
-                        Supports JPG, PNG, and WEBP formats up to 10 MB.
+                      <h3 className="text-xl font-bold text-slate-950">Upload Check Image</h3>
+                      <p className="mt-2 text-sm text-slate-500 max-w-sm">
+                        Drag and drop your file here, or click to browse
                       </p>
+                      <p className="mt-1 text-xs text-slate-400">JPG, PNG, WEBP up to 10MB</p>
                       <button
                         type="button"
                         onClick={triggerFileSelect}
-                        className="mt-6 rounded-xl bg-slate-900 px-4 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-slate-800 transition-all active:scale-[0.98]"
+                        className="mt-6 flex items-center gap-2 rounded-xl bg-indigo-600 px-5 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-indigo-500 transition-all active:scale-[0.98]"
                       >
-                        Browse Files
+                        <FolderOpen className="h-4 w-4" />
+                        <span>Choose File</span>
                       </button>
                     </div>
                   )}
@@ -304,10 +326,10 @@ export default function Home() {
                     <label className="text-sm font-semibold text-slate-900">Check Type</label>
                     <div className="grid grid-cols-2 gap-3">
                       <label
-                        className={`flex cursor-pointer items-center justify-center gap-2 rounded-xl border p-3 text-center transition-all ${
+                        className={`relative flex cursor-pointer flex-col items-center gap-2 rounded-xl border p-5 text-center transition-all ${
                           checkType === "Received"
-                            ? "border-indigo-600 bg-indigo-50/50 text-indigo-900 font-semibold shadow-sm"
-                            : "border-slate-200 bg-white text-slate-600 hover:border-slate-300"
+                            ? "border-indigo-600 bg-indigo-50/50 shadow-sm"
+                            : "border-slate-200 bg-white hover:border-slate-300"
                         }`}
                       >
                         <input
@@ -318,14 +340,32 @@ export default function Home() {
                           onChange={() => setCheckType("Received")}
                           className="sr-only"
                         />
-                        <span>Received</span>
+                        <div
+                          className={`flex h-10 w-10 items-center justify-center rounded-full transition-colors ${
+                            checkType === "Received" ? "bg-indigo-600 text-white" : "bg-slate-100 text-slate-500"
+                          }`}
+                        >
+                          <ArrowDown className="h-5 w-5" />
+                        </div>
+                        <span
+                          className={`text-sm font-semibold ${
+                            checkType === "Received" ? "text-slate-900" : "text-slate-600"
+                          }`}
+                        >
+                          Received
+                        </span>
+                        <span
+                          className={`mt-1 h-2.5 w-2.5 rounded-full border-2 ${
+                            checkType === "Received" ? "border-indigo-600 bg-indigo-600" : "border-slate-300 bg-white"
+                          }`}
+                        />
                       </label>
 
                       <label
-                        className={`flex cursor-pointer items-center justify-center gap-2 rounded-xl border p-3 text-center transition-all ${
+                        className={`relative flex cursor-pointer flex-col items-center gap-2 rounded-xl border p-5 text-center transition-all ${
                           checkType === "Sent Out"
-                            ? "border-indigo-600 bg-indigo-50/50 text-indigo-900 font-semibold shadow-sm"
-                            : "border-slate-200 bg-white text-slate-600 hover:border-slate-300"
+                            ? "border-indigo-600 bg-indigo-50/50 shadow-sm"
+                            : "border-slate-200 bg-white hover:border-slate-300"
                         }`}
                       >
                         <input
@@ -336,28 +376,66 @@ export default function Home() {
                           onChange={() => setCheckType("Sent Out")}
                           className="sr-only"
                         />
-                        <span>Sent Out</span>
+                        <div
+                          className={`flex h-10 w-10 items-center justify-center rounded-full transition-colors ${
+                            checkType === "Sent Out" ? "bg-indigo-600 text-white" : "bg-slate-100 text-slate-500"
+                          }`}
+                        >
+                          <ArrowUp className="h-5 w-5" />
+                        </div>
+                        <span
+                          className={`text-sm font-semibold ${
+                            checkType === "Sent Out" ? "text-slate-900" : "text-slate-600"
+                          }`}
+                        >
+                          Sent Out
+                        </span>
+                        <span
+                          className={`mt-1 h-2.5 w-2.5 rounded-full border-2 ${
+                            checkType === "Sent Out" ? "border-indigo-600 bg-indigo-600" : "border-slate-300 bg-white"
+                          }`}
+                        />
                       </label>
                     </div>
                   </div>
 
+                  <div className="border-t border-slate-100" />
+
                   {/* Checklist Instructions */}
-                  <div className="rounded-xl bg-slate-50 p-4 border border-slate-100">
-                    <h4 className="text-xs font-bold text-slate-800 uppercase tracking-wide">AI Extraction Fields</h4>
-                    <ul className="mt-2.5 space-y-1.5 text-xs text-slate-600">
-                      <li className="flex items-center gap-2">
-                        <Check className="h-3.5 w-3.5 text-indigo-600 shrink-0" />
-                        Check Number & Date
-                      </li>
-                      <li className="flex items-center gap-2">
-                        <Check className="h-3.5 w-3.5 text-indigo-600 shrink-0" />
-                        Amount & Memo
-                      </li>
-                      <li className="flex items-center gap-2">
-                        <Check className="h-3.5 w-3.5 text-indigo-600 shrink-0" />
-                        Payer, Payee, and Bank
-                      </li>
-                    </ul>
+                  <div className="space-y-3">
+                    <h4 className="text-sm font-semibold text-slate-900">What we&apos;ll extract</h4>
+                    <div className="space-y-2">
+                      <div className="flex items-center justify-between gap-3 rounded-xl border border-slate-100 bg-slate-50 px-3.5 py-2.5">
+                        <div className="flex items-center gap-2.5 min-w-0">
+                          <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-indigo-600 text-white">
+                            <Check className="h-3 w-3" />
+                          </span>
+                          <Calendar className="h-4 w-4 text-slate-400 shrink-0" />
+                          <span className="text-xs font-medium text-slate-600 truncate">Check Number &amp; Date</span>
+                        </div>
+                        <span className="h-2 w-16 shrink-0 rounded-full bg-slate-200" />
+                      </div>
+                      <div className="flex items-center justify-between gap-3 rounded-xl border border-slate-100 bg-slate-50 px-3.5 py-2.5">
+                        <div className="flex items-center gap-2.5 min-w-0">
+                          <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-indigo-600 text-white">
+                            <Check className="h-3 w-3" />
+                          </span>
+                          <DollarSign className="h-4 w-4 text-slate-400 shrink-0" />
+                          <span className="text-xs font-medium text-slate-600 truncate">Amount &amp; Memo</span>
+                        </div>
+                        <span className="h-2 w-16 shrink-0 rounded-full bg-slate-200" />
+                      </div>
+                      <div className="flex items-center justify-between gap-3 rounded-xl border border-slate-100 bg-slate-50 px-3.5 py-2.5">
+                        <div className="flex items-center gap-2.5 min-w-0">
+                          <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-indigo-600 text-white">
+                            <Check className="h-3 w-3" />
+                          </span>
+                          <User className="h-4 w-4 text-slate-400 shrink-0" />
+                          <span className="text-xs font-medium text-slate-600 truncate">Payer, Payee, and Bank</span>
+                        </div>
+                        <span className="h-2 w-16 shrink-0 rounded-full bg-slate-200" />
+                      </div>
+                    </div>
                   </div>
                 </div>
 
@@ -366,13 +444,14 @@ export default function Home() {
                     type="button"
                     disabled={!file}
                     onClick={handleAnalyze}
-                    className={`w-full flex items-center justify-center gap-2 rounded-xl py-3 text-sm font-semibold shadow-sm transition-all duration-200 ${
+                    className={`w-full flex items-center justify-center gap-2 rounded-xl py-3.5 text-sm font-semibold shadow-sm transition-all duration-200 ${
                       file
                         ? "bg-indigo-600 text-white hover:bg-indigo-500 hover:shadow-indigo-100 active:scale-[0.98]"
                         : "bg-slate-100 text-slate-400 cursor-not-allowed"
                     }`}
                   >
-                    <span>Analyze Check</span>
+                    <Sparkles className="h-4 w-4" />
+                    <span>Process Check</span>
                   </button>
                 </div>
               </div>
