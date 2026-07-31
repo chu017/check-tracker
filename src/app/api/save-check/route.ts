@@ -5,6 +5,21 @@ import { NextRequest, NextResponse } from "next/server";
 // it so a slow upstream doesn't get cut off mid-request.
 export const maxDuration = 45;
 
+const pad = (n: number) => String(n).padStart(2, "0");
+
+function parseIsoDateParts(dateStr: string): { year: number; month: number; day: number } | null {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(dateStr);
+  if (!match) return null;
+  const [, year, month, day] = match;
+  return { year: Number(year), month: Number(month), day: Number(day) };
+}
+
+// Anchoring to UTC noon (rather than midnight) keeps the calendar date
+// stable once Lark renders it in its own timezone — see the Check Date fix.
+function toUtcNoonTimestamp(year: number, month: number, day: number): number {
+  return Date.UTC(year, month - 1, day, 12, 0, 0);
+}
+
 interface SaveCheckRequest {
   checkType: "Received" | "Sent Out";
   checkNumber: string | null;
@@ -107,19 +122,25 @@ export async function POST(req: NextRequest) {
 
     const fileToken = uploadData.data.file_token;
 
-    // 5. Parse date to Unix milliseconds timestamp.
-    // `new Date("YYYY-MM-DD")` parses as UTC midnight, which Lark then
-    // renders in its own timezone — for anyone west of UTC that rolls the
-    // displayed date back by one day. Anchoring to UTC noon instead keeps
-    // the calendar date stable across every real-world timezone offset.
-    let checkDateTimestamp: number | null = null;
-    if (data.checkDate) {
-      const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(data.checkDate);
-      if (match) {
-        const [, year, month, day] = match;
-        checkDateTimestamp = Date.UTC(Number(year), Number(month) - 1, Number(day), 12, 0, 0);
-      }
-    }
+    // 5. Parse dates to Unix millisecond timestamps.
+    const checkDateParts = data.checkDate ? parseIsoDateParts(data.checkDate) : null;
+    const checkDateTimestamp = checkDateParts
+      ? toUtcNoonTimestamp(checkDateParts.year, checkDateParts.month, checkDateParts.day)
+      : null;
+    const checkDateSlash = checkDateParts
+      ? `${checkDateParts.year}/${pad(checkDateParts.month)}/${pad(checkDateParts.day)}`
+      : "";
+
+    const now = new Date();
+    const uploadYear = now.getUTCFullYear();
+    const uploadMonth = now.getUTCMonth() + 1;
+    const uploadDay = now.getUTCDate();
+    const uploadDateTimestamp = toUtcNoonTimestamp(uploadYear, uploadMonth, uploadDay);
+    const uploadDateSlash = `${uploadYear}/${pad(uploadMonth)}/${pad(uploadDay)}`;
+
+    // e.g. "2026/07/30_SNEH JOLLY_to_Compass X Builder_1000_2026/07/31"
+    const amountStr = data.amount !== null ? String(data.amount) : "";
+    const docName = `${checkDateSlash}_${data.payer || ""}_to_${data.payee || ""}_${amountStr}_${uploadDateSlash}`;
 
     // 6. Create record in Lark Bitable (Base)
     const recordPayload = {
@@ -137,6 +158,8 @@ export async function POST(req: NextRequest) {
         "Payee": data.payee || null,
         "Bank Name": data.bankName || null,
         "Memo": data.memo || null,
+        "Doc Name": docName,
+        "Upload Date": uploadDateTimestamp,
       },
     };
 
