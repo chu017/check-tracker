@@ -37,6 +37,62 @@ function toSafeFile(file: File): File {
   return new File([file], `check-image.${extension}`, { type: file.type });
 }
 
+// Vercel's serverless functions hard-cap the request body at 4.5MB — a
+// platform limit, not something maxDuration or retries can work around.
+// Full-resolution phone camera photos routinely exceed it, so downscale
+// and re-encode client-side before upload, trying progressively smaller
+// passes until the result fits comfortably under that ceiling.
+const MAX_UPLOAD_BYTES = 4 * 1024 * 1024;
+const COMPRESSION_PASSES = [
+  { maxDimension: 1800, quality: 0.82 },
+  { maxDimension: 1400, quality: 0.7 },
+  { maxDimension: 1000, quality: 0.6 },
+];
+
+async function compressForUpload(file: File): Promise<File> {
+  if (typeof document === "undefined" || typeof createImageBitmap === "undefined") {
+    return toSafeFile(file);
+  }
+
+  let bitmap: ImageBitmap;
+  try {
+    bitmap = await createImageBitmap(file);
+  } catch {
+    return toSafeFile(file);
+  }
+
+  let smallest = toSafeFile(file);
+  try {
+    for (const pass of COMPRESSION_PASSES) {
+      const scale = Math.min(1, pass.maxDimension / Math.max(bitmap.width, bitmap.height));
+      const width = Math.max(1, Math.round(bitmap.width * scale));
+      const height = Math.max(1, Math.round(bitmap.height * scale));
+
+      const canvas = document.createElement("canvas");
+      canvas.width = width;
+      canvas.height = height;
+      const ctx = canvas.getContext("2d");
+      if (!ctx) break;
+      ctx.drawImage(bitmap, 0, 0, width, height);
+
+      const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, "image/jpeg", pass.quality));
+      if (!blob) continue;
+
+      const candidate = new File([blob], "check-image.jpg", { type: "image/jpeg" });
+      if (candidate.size < smallest.size) {
+        smallest = candidate;
+      }
+      if (candidate.size <= MAX_UPLOAD_BYTES) {
+        return candidate;
+      }
+    }
+  } finally {
+    bitmap.close();
+  }
+
+  return smallest;
+}
+
 // Reads an error response body once as text, then tries to interpret it as
 // our own { error } JSON shape. Falls back to the raw text for cases where
 // the response never reached our route handler at all — e.g. a platform-level
@@ -97,21 +153,31 @@ export default function Home() {
   const [memo, setMemo] = useState<string>("");
 
   // Handle file validation
-  const validateAndSetFile = (selectedFile: File) => {
+  const validateAndSetFile = async (selectedFile: File) => {
     setError(null);
     const validTypes = ["image/jpeg", "image/png", "image/webp"];
     if (!validTypes.includes(selectedFile.type)) {
       setError("Unsupported file format. Please upload JPG, PNG, or WEBP.");
       return;
     }
-    const maxSize = 10 * 1024 * 1024; // 10MB
-    if (selectedFile.size > maxSize) {
-      setError("File is too large. Maximum size is 10 MB.");
+    // Compression brings virtually any camera photo well under the upload
+    // limit, so this only guards against pathologically large selections.
+    const maxOriginalSize = 25 * 1024 * 1024;
+    if (selectedFile.size > maxOriginalSize) {
+      setError("File is too large. Please choose a photo under 25 MB.");
       return;
     }
 
-    setFile(selectedFile);
-    const objectUrl = URL.createObjectURL(selectedFile);
+    const uploadFile = await compressForUpload(selectedFile);
+    if (uploadFile.size > MAX_UPLOAD_BYTES) {
+      setError(
+        "This image is too large to upload even after compression. Please retake the photo at a lower resolution or crop it closer to the check."
+      );
+      return;
+    }
+
+    setFile(uploadFile);
+    const objectUrl = URL.createObjectURL(uploadFile);
     setPreviewUrl(objectUrl);
   };
 
@@ -129,13 +195,13 @@ export default function Home() {
     e.preventDefault();
     setIsDragOver(false);
     if (e.dataTransfer.files && e.dataTransfer.files[0]) {
-      validateAndSetFile(e.dataTransfer.files[0]);
+      void validateAndSetFile(e.dataTransfer.files[0]);
     }
   };
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files[0]) {
-      validateAndSetFile(e.target.files[0]);
+      void validateAndSetFile(e.target.files[0]);
     }
   };
 
@@ -152,7 +218,7 @@ export default function Home() {
     setError(null);
 
     const formData = new FormData();
-    formData.append("file", toSafeFile(file));
+    formData.append("file", file);
 
     try {
       const response = await fetch("/api/analyze-check", {
@@ -194,7 +260,7 @@ export default function Home() {
     const parsedAmount = amount === "" ? null : parseFloat(amount);
 
     const formData = new FormData();
-    formData.append("file", toSafeFile(file));
+    formData.append("file", file);
     formData.append(
       "data",
       JSON.stringify({
@@ -345,7 +411,7 @@ export default function Home() {
                       <p className="mt-2 text-sm text-slate-500 max-w-sm">
                         Drag and drop your file here, or click to browse
                       </p>
-                      <p className="mt-1 text-xs text-slate-400">JPG, PNG, WEBP up to 10MB</p>
+                      <p className="mt-1 text-xs text-slate-400">JPG, PNG, WEBP — large photos are auto-compressed</p>
                       <button
                         type="button"
                         onClick={triggerFileSelect}

@@ -97,11 +97,13 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // Validate size (10 MB maximum)
-    const maxSize = 10 * 1024 * 1024;
+    // Vercel's serverless functions hard-cap the request body around 4.5MB;
+    // the client compresses images before upload, but guard here too in case
+    // that step is bypassed.
+    const maxSize = 4 * 1024 * 1024;
     if (file.size > maxSize) {
       return NextResponse.json(
-        { error: "File size exceeds the 10 MB limit." },
+        { error: "File size exceeds the 4 MB limit." },
         { status: 400 }
       );
     }
