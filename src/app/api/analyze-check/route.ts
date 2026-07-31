@@ -1,18 +1,39 @@
 import { NextRequest, NextResponse } from "next/server";
 import { GoogleGenerativeAI, Schema, SchemaType } from "@google/generative-ai";
 
-// Vercel Hobby allows configuring this up to 60s, but stay conservative:
-// keep comfortably under whatever the actual plan/runtime enforces so a
-// slow chain fails with our own JSON error instead of a platform timeout.
-export const maxDuration = 20;
+// Vercel Hobby's real hard ceiling is 60s. Use most of it, but leave a
+// margin for request parsing/response overhead so our own JSON error wins
+// the race against a platform-level timeout, not the other way round.
+export const maxDuration = 45;
+
+// Each attempt gets its own budget so one slow/hanging model can't consume
+// the whole request — 2 models x 18s still leaves headroom under maxDuration.
+const PER_ATTEMPT_TIMEOUT_MS = 18000;
 
 // Tried in order, one attempt each. Each model has its own capacity pool, so
-// falling back to a different model beats retrying the same overloaded one,
-// and skipping in-model retries keeps the whole chain well under maxDuration.
+// falling back to a different model beats retrying the same overloaded one.
 // Stick to the same (3.x) generation as the primary model — older models
 // (2.5-flash and earlier) are being locked out for new API projects even
 // though they still show up in the models list.
 const MODEL_FALLBACK_CHAIN = ["gemini-3.5-flash", "gemini-3.5-flash-lite"];
+
+class AttemptTimeoutError extends Error {}
+
+function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => reject(new AttemptTimeoutError(`Timed out after ${ms}ms`)), ms);
+    promise.then(
+      (value) => {
+        clearTimeout(timer);
+        resolve(value);
+      },
+      (error) => {
+        clearTimeout(timer);
+        reject(error);
+      }
+    );
+  });
+}
 
 const CHECK_DATA_SCHEMA: Schema = {
   type: SchemaType.OBJECT,
@@ -34,6 +55,7 @@ const CHECK_DATA_SCHEMA: Schema = {
 // through to the next model in the chain rather than aborting outright.
 function isFallbackWorthyError(error: any): boolean {
   return (
+    error instanceof AttemptTimeoutError ||
     error?.status === 503 ||
     error?.status === 429 ||
     error?.status === 404 ||
@@ -56,7 +78,7 @@ async function generateWithFallback(
     });
 
     try {
-      return await model.generateContent(parts);
+      return await withTimeout(model.generateContent(parts), PER_ATTEMPT_TIMEOUT_MS);
     } catch (error: any) {
       lastError = error;
       if (!isFallbackWorthyError(error)) {
@@ -164,7 +186,7 @@ AI Rules:
     console.error("Error in analyze-check endpoint:", error);
     const fallbackExhausted = isFallbackWorthyError(error);
     const message = fallbackExhausted
-      ? "None of the configured Gemini models are available right now (overloaded, rate-limited, or no longer accessible). Please try again shortly."
+      ? "None of the configured Gemini models responded in time (overloaded, rate-limited, too slow, or no longer accessible). Please try again shortly."
       : error.message || "An error occurred while analyzing the check image.";
     return NextResponse.json({ error: message }, { status: fallbackExhausted ? 503 : 500 });
   }
