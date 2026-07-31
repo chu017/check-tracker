@@ -204,14 +204,7 @@ export default function Home() {
             </div>
             <div>
               <h1 className="text-xl font-bold tracking-tight text-slate-900">CheckTracker</h1>
-              <p className="text-xs text-slate-500">Internal Financial Tool</p>
             </div>
-          </div>
-          <div className="flex items-center gap-2">
-            <span className="inline-flex items-center gap-1.5 rounded-full bg-indigo-50 px-2 py-1 text-xs font-semibold text-indigo-700">
-              <span className="h-1.5 w-1.5 rounded-full bg-indigo-600"></span>
-              MVP V1.0
-            </span>
           </div>
         </div>
       </header>
@@ -306,11 +299,6 @@ export default function Home() {
               {/* Right Side: Options & Actions */}
               <div className="flex flex-col justify-between rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
                 <div className="space-y-6">
-                  <div>
-                    <h2 className="text-lg font-bold text-slate-950">Configuration</h2>
-                    <p className="text-xs text-slate-500 mt-0.5">Specify check routing configuration</p>
-                  </div>
-
                   {/* Check Type */}
                   <div className="space-y-3">
                     <label className="text-sm font-semibold text-slate-900">Check Type</label>
@@ -666,7 +654,7 @@ export default function Home() {
       {/* Footer */}
       <footer className="border-t border-slate-200 bg-white py-6 mt-12">
         <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8 text-center text-xs text-slate-400">
-          <p>© {new Date().getFullYear()} CheckTracker. Powered by Next.js & Google Gemini Vision AI.</p>
+          <p>© {new Date().getFullYear()} CheckTracker.</p>
         </div>
       </footer>
     </div>
