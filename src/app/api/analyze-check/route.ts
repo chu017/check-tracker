@@ -1,7 +1,21 @@
 import { NextRequest, NextResponse } from "next/server";
-import { GoogleGenerativeAI, GenerativeModel } from "@google/generative-ai";
+import { GoogleGenerativeAI, GenerativeModel, Schema, SchemaType } from "@google/generative-ai";
 
 const MAX_RETRIES = 3;
+
+const CHECK_DATA_SCHEMA: Schema = {
+  type: SchemaType.OBJECT,
+  properties: {
+    checkNumber: { type: SchemaType.STRING, nullable: true },
+    checkDate: { type: SchemaType.STRING, nullable: true },
+    amount: { type: SchemaType.NUMBER, nullable: true },
+    payer: { type: SchemaType.STRING, nullable: true },
+    payee: { type: SchemaType.STRING, nullable: true },
+    bankName: { type: SchemaType.STRING, nullable: true },
+    memo: { type: SchemaType.STRING, nullable: true },
+  },
+  required: ["checkNumber", "checkDate", "amount", "payer", "payee", "bankName", "memo"],
+};
 
 function isRetryableError(error: any): boolean {
   return error?.status === 503 || /overloaded|high demand/i.test(error?.message || "");
@@ -72,6 +86,7 @@ export async function POST(req: NextRequest) {
       model: "gemini-3.5-flash",
       generationConfig: {
         responseMimeType: "application/json",
+        responseSchema: CHECK_DATA_SCHEMA,
       },
     });
 
@@ -112,7 +127,13 @@ AI Rules:
     }
 
     // Parse AI JSON output
-    const extractedData = JSON.parse(responseText.trim());
+    let extractedData;
+    try {
+      extractedData = JSON.parse(responseText.trim());
+    } catch {
+      console.error("Gemini returned non-JSON output:", responseText);
+      throw new Error("The AI returned an unreadable response. Please try again.");
+    }
 
     return NextResponse.json(extractedData);
   } catch (error: any) {

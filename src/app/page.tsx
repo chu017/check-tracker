@@ -23,6 +23,28 @@ import {
   HelpCircle
 } from "lucide-react";
 
+const MIME_EXTENSIONS: Record<string, string> = {
+  "image/jpeg": "jpg",
+  "image/png": "png",
+  "image/webp": "webp",
+};
+
+// Mobile camera captures can carry unusual filenames/encodings that some
+// browsers fail to serialize into a multipart body. Re-wrapping in a File
+// with a plain ASCII name sidesteps that.
+function toSafeFile(file: File): File {
+  const extension = MIME_EXTENSIONS[file.type] || "jpg";
+  return new File([file], `check-image.${extension}`, { type: file.type });
+}
+
+function toFriendlyErrorMessage(err: unknown, fallback: string): string {
+  const message = err instanceof Error ? err.message : String(err);
+  if (/did not match the expected pattern/i.test(message)) {
+    return "Your browser couldn't process this image. Try taking the photo again or choosing an existing one from your library.";
+  }
+  return message || fallback;
+}
+
 interface ExtractedData {
   checkNumber: string | null;
   checkDate: string | null;
@@ -111,7 +133,7 @@ export default function Home() {
     setError(null);
 
     const formData = new FormData();
-    formData.append("file", file);
+    formData.append("file", toSafeFile(file));
 
     try {
       const response = await fetch("/api/analyze-check", {
@@ -136,8 +158,9 @@ export default function Home() {
       setMemo(result.memo || "");
 
       setStep("review");
-    } catch (err: any) {
-      setError(err.message || "An unexpected error occurred.");
+    } catch (err: unknown) {
+      console.error("Analyze check failed:", err);
+      setError(toFriendlyErrorMessage(err, "An unexpected error occurred."));
       setStep("upload");
     }
   };
@@ -153,7 +176,7 @@ export default function Home() {
     const parsedAmount = amount === "" ? null : parseFloat(amount);
 
     const formData = new FormData();
-    formData.append("file", file);
+    formData.append("file", toSafeFile(file));
     formData.append(
       "data",
       JSON.stringify({
@@ -180,8 +203,9 @@ export default function Home() {
       }
 
       setStep("success");
-    } catch (err: any) {
-      setError(err.message || "An error occurred while saving the record.");
+    } catch (err: unknown) {
+      console.error("Save check failed:", err);
+      setError(toFriendlyErrorMessage(err, "An error occurred while saving the record."));
       setStep("review");
     }
   };
