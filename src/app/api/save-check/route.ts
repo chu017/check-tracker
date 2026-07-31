@@ -1,5 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 
+// This route makes three sequential Lark API calls (auth, media upload,
+// record creation); give it more room than the platform default so a slow
+// upstream doesn't get cut off mid-request.
+export const maxDuration = 20;
+
 interface SaveCheckRequest {
   checkType: "Received" | "Sent Out";
   checkNumber: string | null;

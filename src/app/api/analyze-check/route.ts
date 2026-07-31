@@ -1,15 +1,18 @@
 import { NextRequest, NextResponse } from "next/server";
 import { GoogleGenerativeAI, Schema, SchemaType } from "@google/generative-ai";
 
-// Vercel Hobby allows configuring this up to 60s; 30s leaves headroom for
-// the fallback chain below plus request/response overhead.
-export const maxDuration = 30;
+// Vercel Hobby allows configuring this up to 60s, but stay conservative:
+// keep comfortably under whatever the actual plan/runtime enforces so a
+// slow chain fails with our own JSON error instead of a platform timeout.
+export const maxDuration = 20;
 
-// Tried in order. Each model has its own capacity pool, so when the primary
-// is overloaded, falling back to another model succeeds far more often than
-// just retrying the same one.
-const MODEL_FALLBACK_CHAIN = ["gemini-3.5-flash", "gemini-2.5-flash"];
-const RETRIES_PER_MODEL = 2;
+// Tried in order, one attempt each. Each model has its own capacity pool, so
+// falling back to a different model beats retrying the same overloaded one,
+// and skipping in-model retries keeps the whole chain well under maxDuration.
+// Stick to the same (3.x) generation as the primary model — older models
+// (2.5-flash and earlier) are being locked out for new API projects even
+// though they still show up in the models list.
+const MODEL_FALLBACK_CHAIN = ["gemini-3.5-flash", "gemini-3.5-flash-lite"];
 
 const CHECK_DATA_SCHEMA: Schema = {
   type: SchemaType.OBJECT,
@@ -25,11 +28,16 @@ const CHECK_DATA_SCHEMA: Schema = {
   required: ["checkNumber", "checkDate", "amount", "payer", "payee", "bankName", "memo"],
 };
 
-function isRetryableError(error: any): boolean {
+// Overload/rate-limit errors mean "this model is temporarily busy"; a 404
+// means "this model isn't available to us at all" (e.g. deprecated for new
+// projects, as happened with gemini-2.5-flash). Both are reasons to fall
+// through to the next model in the chain rather than aborting outright.
+function isFallbackWorthyError(error: any): boolean {
   return (
     error?.status === 503 ||
     error?.status === 429 ||
-    /overloaded|high demand/i.test(error?.message || "")
+    error?.status === 404 ||
+    /overloaded|high demand|no longer available/i.test(error?.message || "")
   );
 }
 
@@ -47,20 +55,15 @@ async function generateWithFallback(
       },
     });
 
-    for (let attempt = 0; attempt < RETRIES_PER_MODEL; attempt++) {
-      try {
-        return await model.generateContent(parts);
-      } catch (error: any) {
-        lastError = error;
-        if (!isRetryableError(error)) {
-          throw error;
-        }
-        if (attempt < RETRIES_PER_MODEL - 1) {
-          await new Promise((resolve) => setTimeout(resolve, 1000 * 2 ** attempt));
-        }
+    try {
+      return await model.generateContent(parts);
+    } catch (error: any) {
+      lastError = error;
+      if (!isFallbackWorthyError(error)) {
+        throw error;
       }
+      // Overloaded, rate-limited, or unavailable — move on to the next model immediately.
     }
-    // This model's retries are exhausted — move on to the next one in the chain.
   }
   throw lastError;
 }
@@ -157,10 +160,10 @@ AI Rules:
     return NextResponse.json(extractedData);
   } catch (error: any) {
     console.error("Error in analyze-check endpoint:", error);
-    const retryable = isRetryableError(error);
-    const message = retryable
-      ? "Gemini is currently overloaded across all available models. Please try again in a moment."
+    const fallbackExhausted = isFallbackWorthyError(error);
+    const message = fallbackExhausted
+      ? "None of the configured Gemini models are available right now (overloaded, rate-limited, or no longer accessible). Please try again shortly."
       : error.message || "An error occurred while analyzing the check image.";
-    return NextResponse.json({ error: message }, { status: retryable ? 503 : 500 });
+    return NextResponse.json({ error: message }, { status: fallbackExhausted ? 503 : 500 });
   }
 }

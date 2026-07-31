@@ -37,6 +37,25 @@ function toSafeFile(file: File): File {
   return new File([file], `check-image.${extension}`, { type: file.type });
 }
 
+// Reads an error response body once as text, then tries to interpret it as
+// our own { error } JSON shape. Falls back to the raw text for cases where
+// the response never reached our route handler at all — e.g. a platform-level
+// timeout page, which is plain text, not JSON — so callers never crash trying
+// to JSON.parse an unknown body.
+async function readErrorMessage(response: Response, fallback: string): Promise<string> {
+  const rawText = await response.text();
+  try {
+    const parsed = JSON.parse(rawText);
+    if (typeof parsed?.error === "string" && parsed.error) {
+      return parsed.error;
+    }
+  } catch {
+    // Not JSON — likely a platform-level error page (e.g. a function timeout).
+  }
+  const trimmed = rawText.trim();
+  return trimmed ? trimmed.slice(0, 300) : fallback;
+}
+
 function toFriendlyErrorMessage(err: unknown, fallback: string): string {
   const message = err instanceof Error ? err.message : String(err);
   if (/did not match the expected pattern/i.test(message)) {
@@ -142,8 +161,7 @@ export default function Home() {
       });
 
       if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.error || "Failed to analyze check image.");
+        throw new Error(await readErrorMessage(response, "Failed to analyze check image."));
       }
 
       const result: ExtractedData = await response.json();
@@ -198,8 +216,7 @@ export default function Home() {
       });
 
       if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.error || "Failed to save record to Lark Base.");
+        throw new Error(await readErrorMessage(response, "Failed to save record to Lark Base."));
       }
 
       setStep("success");
