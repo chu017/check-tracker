@@ -1,7 +1,15 @@
 import { NextRequest, NextResponse } from "next/server";
-import { GoogleGenerativeAI, GenerativeModel, Schema, SchemaType } from "@google/generative-ai";
+import { GoogleGenerativeAI, Schema, SchemaType } from "@google/generative-ai";
 
-const MAX_RETRIES = 3;
+// Vercel Hobby allows configuring this up to 60s; 30s leaves headroom for
+// the fallback chain below plus request/response overhead.
+export const maxDuration = 30;
+
+// Tried in order. Each model has its own capacity pool, so when the primary
+// is overloaded, falling back to another model succeeds far more often than
+// just retrying the same one.
+const MODEL_FALLBACK_CHAIN = ["gemini-3.5-flash", "gemini-2.5-flash"];
+const RETRIES_PER_MODEL = 2;
 
 const CHECK_DATA_SCHEMA: Schema = {
   type: SchemaType.OBJECT,
@@ -18,22 +26,41 @@ const CHECK_DATA_SCHEMA: Schema = {
 };
 
 function isRetryableError(error: any): boolean {
-  return error?.status === 503 || /overloaded|high demand/i.test(error?.message || "");
+  return (
+    error?.status === 503 ||
+    error?.status === 429 ||
+    /overloaded|high demand/i.test(error?.message || "")
+  );
 }
 
-async function generateWithRetry(model: GenerativeModel, parts: (string | { inlineData: { data: string; mimeType: string } })[]) {
+async function generateWithFallback(
+  genAI: GoogleGenerativeAI,
+  parts: (string | { inlineData: { data: string; mimeType: string } })[]
+) {
   let lastError: any;
-  for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
-    try {
-      return await model.generateContent(parts);
-    } catch (error: any) {
-      lastError = error;
-      if (!isRetryableError(error) || attempt === MAX_RETRIES - 1) {
-        throw error;
+  for (const modelName of MODEL_FALLBACK_CHAIN) {
+    const model = genAI.getGenerativeModel({
+      model: modelName,
+      generationConfig: {
+        responseMimeType: "application/json",
+        responseSchema: CHECK_DATA_SCHEMA,
+      },
+    });
+
+    for (let attempt = 0; attempt < RETRIES_PER_MODEL; attempt++) {
+      try {
+        return await model.generateContent(parts);
+      } catch (error: any) {
+        lastError = error;
+        if (!isRetryableError(error)) {
+          throw error;
+        }
+        if (attempt < RETRIES_PER_MODEL - 1) {
+          await new Promise((resolve) => setTimeout(resolve, 1000 * 2 ** attempt));
+        }
       }
-      const backoffMs = 1000 * 2 ** attempt;
-      await new Promise((resolve) => setTimeout(resolve, backoffMs));
     }
+    // This model's retries are exhausted — move on to the next one in the chain.
   }
   throw lastError;
 }
@@ -80,15 +107,7 @@ export async function POST(req: NextRequest) {
     const bytes = await file.arrayBuffer();
     const base64Image = Buffer.from(bytes).toString("base64");
 
-    // Initialize Gemini AI
     const genAI = new GoogleGenerativeAI(apiKey);
-    const model = genAI.getGenerativeModel({
-      model: "gemini-3.5-flash",
-      generationConfig: {
-        responseMimeType: "application/json",
-        responseSchema: CHECK_DATA_SCHEMA,
-      },
-    });
 
     const prompt = `
 Analyze this check image and extract the check information. 
@@ -119,7 +138,7 @@ AI Rules:
       },
     };
 
-    const response = await generateWithRetry(model, [prompt, imagePart]);
+    const response = await generateWithFallback(genAI, [prompt, imagePart]);
     const responseText = response.response.text();
 
     if (!responseText) {
@@ -140,7 +159,7 @@ AI Rules:
     console.error("Error in analyze-check endpoint:", error);
     const retryable = isRetryableError(error);
     const message = retryable
-      ? "Gemini is currently overloaded and didn't respond after several retries. Please try again in a moment."
+      ? "Gemini is currently overloaded across all available models. Please try again in a moment."
       : error.message || "An error occurred while analyzing the check image.";
     return NextResponse.json({ error: message }, { status: retryable ? 503 : 500 });
   }
